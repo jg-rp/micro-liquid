@@ -94,4 +94,4 @@ force-single-line = true
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["PLR2004", "FBT003"]
+"tests/*" = ["PLR2004", "FBT003", "S101"]

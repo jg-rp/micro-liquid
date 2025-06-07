@@ -274,6 +274,8 @@ class Scanner:
             self.emit(kind, "")
             return
 
+        # TODO: unescape
+
         while True:
             ch = self.next()
 
@@ -400,6 +402,8 @@ class _Missing:
     def __bool__(self) -> bool:
         return False
 
+
+# TODO: store _MISSING on scope
 
 _MISSING = _Missing()
 

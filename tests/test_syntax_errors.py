@@ -3,8 +3,8 @@ from typing import NamedTuple
 
 import pytest
 
-from micro_liquid import TemplateSyntaxError
 from micro_liquid import Template
+from micro_liquid import TemplateSyntaxError
 
 
 class Case(NamedTuple):
@@ -39,16 +39,6 @@ TEST_CASES = [
         template="{% if true %}foo{{ bar }}",
         expect_msg="expected tag 'endif'",
     ),
-    # Case(
-    #     description="orphaned break",
-    #     template="{% break %}",
-    #     expect_msg="unexpected 'break'",
-    # ),
-    # Case(
-    #     description="orphaned continue",
-    #     template="{% continue %}",
-    #     expect_msg="unexpected 'continue'",
-    # ),
     Case(
         description="orphaned else",
         template="{% else %}",
