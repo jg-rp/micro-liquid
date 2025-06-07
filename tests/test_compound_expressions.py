@@ -60,5 +60,5 @@ TEST_CASES: list[Case] = [
 
 
 @pytest.mark.parametrize("case", TEST_CASES, ids=operator.itemgetter("name"))
-def test_syntax_errors(case: Case) -> None:
+def test_compound_expressions(case: Case) -> None:
     assert Template(case["template"]).render(case["data"]) == case["result"]

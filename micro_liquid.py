@@ -1,7 +1,30 @@
-"""Minimal non-evaluating, Liquid-like text templating."""
+"""Minimal non-evaluating, Liquid-like text templating.
+
+MIT License
+
+Copyright (c) 2025-present James Prior <jamesgr.prior@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+"""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from collections import deque
@@ -274,7 +297,7 @@ class Scanner:
             self.emit(kind, "")
             return
 
-        # TODO: unescape
+        needs_unescaping = False
 
         while True:
             ch = self.next()
@@ -282,15 +305,28 @@ class Scanner:
             if ch == "\\":
                 peeked = self.peek()
                 if peeked in _ESCAPES or peeked == quote:
+                    needs_unescaping = True
                     self.pos += 1
                 else:
                     raise TemplateSyntaxError(
                         "invalid escape sequence",
-                        token=_Token("TOKEN_ERROR", peeked, self.pos + 1),
+                        token=_Token("TOKEN_ERROR", ch, self.pos),
                     )
 
             if ch == quote:
-                self.emit(kind, self.source[self.start : self.pos - 1])
+                if needs_unescaping:
+                    try:
+                        self.emit(
+                            kind,
+                            _unescape(self.source[self.start : self.pos - 1], quote),
+                        )
+                    except json.JSONDecodeError as err:
+                        raise TemplateSyntaxError(
+                            "invalid escape sequence",
+                            token=_Token("TOKEN_ERROR", ch, self.pos - 1),
+                        ) from err
+                else:
+                    self.emit(kind, self.source[self.start : self.pos - 1])
                 return
 
             if not ch:
@@ -298,6 +334,13 @@ class Scanner:
                     "unclosed string literal",
                     token=_Token("TOKEN_ERROR", quote, self.start),
                 )
+
+
+def _unescape(s: str, quote: str) -> str:
+    if quote == "'":
+        s = s.replace('"', '\\"').replace("\\'", "'")
+    unescaped: str = json.loads(f'"{s}"')
+    return unescaped
 
 
 class Markup(Protocol):
@@ -324,7 +367,9 @@ class Output:
         self.expression = expression
 
     def render(self, data: _Scope, buffer: list[str]) -> None:
-        buffer.append(str(self.expression.evaluate(data)))
+        value = self.expression.evaluate(data)
+        value = json.dumps(value) if isinstance(value, (list, dict)) else str(value)
+        buffer.append(value)
 
 
 class IfTag:
@@ -463,9 +508,12 @@ def _resolve(
 
     for segment in it:
         if isinstance(obj, Mapping):
-            obj = obj.get(segment)
+            obj = obj.get(segment, default)
         elif isinstance(obj, Sequence) and isinstance(segment, int):
-            obj = obj[segment]
+            try:
+                obj = obj[segment]
+            except IndexError:
+                obj = default
         else:
             return default
 
