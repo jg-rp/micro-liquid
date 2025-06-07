@@ -67,7 +67,6 @@ select = [
   "B",
   "BLE",
   "C4",
-  "D",
   "E",
   "F",
   "FBT",
@@ -95,4 +94,4 @@ force-single-line = true
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["D100", "D101", "D102", "D104", "D103", "PLR2004", "FBT003"]
+"tests/*" = ["PLR2004", "FBT003"]

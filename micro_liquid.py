@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2025-present James Prior <jamesgr.prior@gmail.com>
-#
-# SPDX-License-Identifier: MIT
+"""Minimal non-evaluating, Liquid-like text templating."""
+
 from __future__ import annotations
 
+import os
 import re
 from collections import deque
 from contextlib import contextmanager
@@ -19,33 +19,15 @@ from typing import Sequence
 from typing import TypeAlias
 
 
-class Markup(Protocol):
-    """The interface for a Liquid tag or output statement."""
-
-    def render(self, data: _Scope, buffer: list[str]) -> None:
-        """Render this node to _buffer_. with reference to variables in _data_."""
-        ...
-
-
-class Expression(Protocol):
-    """The interface for a Liquid loop or logical expression."""
-
-    def evaluate(self, data: _Scope) -> object:
-        """Evaluate this expression with reference to variables in _data_."""
-        ...
-
-
-Node: TypeAlias = str | Markup
-
-
 class Template:
-    """"""
-
     def __init__(self, source: str):
-        self.nodes = _Parser(_Scanner(source).tokens).parse()
+        try:
+            self.nodes = Parser(Scanner(source).tokens).parse()
+        except TemplateSyntaxError as err:
+            err.source = source
+            raise
 
     def render(self, data: Mapping[str, object]) -> str:
-        """"""
         scope = _Scope(data)
         buffer: list[str] = []
         for node in self.nodes:
@@ -56,11 +38,286 @@ class Template:
         return "".join(buffer)
 
 
-class LiquidSyntaxError(Exception):
-    """An exception raised due to bad Liquid syntax."""
+class TemplateSyntaxError(Exception):
+    """An exception raised during template parsing due to unexpected template syntax."""
+
+    def __init__(self, *args: object, token: _Token):
+        super().__init__(*args)
+        self.token = token
+        self.source: str | None = None
+
+    def __str__(self) -> str:
+        if not self.token or self.token.start < 0 or not self.source:
+            return super().__str__()
+
+        _kind, value, index = self.token
+        context = self.error_context(self.source, index)
+
+        if not context:
+            return super().__str__()
+
+        line, col, current = context
+
+        position = f"{current!r}:{line}:{col}"
+        pad = " " * len(str(line))
+        pointer = (" " * col) + ("^" * len(value))
+
+        return os.linesep.join(
+            [
+                self.args[0],
+                f"{pad} -> {position}",
+                f"{pad} |",
+                f"{line} | {current}",
+                f"{pad} | {pointer} {self.args[0]}",
+            ]
+        )
+
+    def error_context(self, text: str, index: int) -> tuple[int, int, str] | None:
+        """Return the line number, column number and current line of text."""
+        lines = text.splitlines(keepends=True)
+        cumulative_length = 0
+        target_line_index = -1
+
+        for i, line in enumerate(lines):
+            cumulative_length += len(line)
+            if index < cumulative_length:
+                target_line_index = i
+                break
+
+        if target_line_index == -1:
+            return None
+
+        line_number = target_line_index + 1  # 1-based
+        column_number = index - (cumulative_length - len(lines[target_line_index]))
+        current_line = lines[target_line_index].rstrip()
+        return (line_number, column_number, current_line)
 
 
-class _Output:
+class _Token(NamedTuple):
+    kind: str
+    value: str
+    start: int
+
+
+_StateFn: TypeAlias = Callable[[], Optional["_StateFn"]]
+
+_RE_TRIVIA = re.compile(r"[ \n\r\t]+")
+_RE_TAG_NAME = re.compile(r"(?:end)?(?:if|for|elif|elsif|else)")
+_RE_WORD = re.compile(r"[\u0080-\uFFFFa-zA-Z_][\u0080-\uFFFFa-zA-Z0-9_-]*")
+_RE_MARKUP_START = re.compile(r"\{\{|\{%")
+_RE_MARKUP_END = re.compile(r"[\}%]\}?")
+_RE_PUNCTUATION = re.compile(r"[\[\]\.\(\)]")
+_RE_INT = re.compile(r"-?\d+")
+
+_TOKEN_MAP: dict[str, str] = {
+    "[": "TOKEN_L_BRACKET",
+    "]": "TOKEN_R_BRACKET",
+    ".": "TOKEN_DOT",
+    "(": "TOKEN_L_PAREN",
+    ")": "TOKEN_R_PAREN",
+    "and": "TOKEN_AND",
+    "or": "TOKEN_OR",
+    "not": "TOKEN_NOT",
+    "in": "TOKEN_IN",
+}
+
+_ESCAPES = frozenset(["b", "f", "n", "r", "t", "u", "/", "\\"])
+
+
+class Scanner:
+    def __init__(self, source: str):
+        self.source = source
+        self.tokens: list[_Token] = []
+        self.start = 0
+        self.pos = 0
+
+        state: _StateFn | None = self.lex_markup
+        while state is not None:
+            state = state()
+
+    def emit(self, kind: str, value: str) -> None:
+        self.tokens.append(_Token(kind, value, self.start))
+        self.start = self.pos
+
+    def next(self) -> str:
+        try:
+            ch = self.source[self.pos]
+            self.pos += 1
+            return ch
+        except IndexError:
+            return ""
+
+    def peek(self) -> str:
+        try:
+            return self.source[self.pos]
+        except IndexError:
+            return ""
+
+    def scan(self, pattern: Pattern[str]) -> str | None:
+        match = pattern.match(self.source, self.pos)
+        if match:
+            self.pos += match.end() - match.start()
+            return match[0]
+        return None
+
+    def scan_until(self, pattern: Pattern[str]) -> str | None:
+        match = pattern.search(self.source, self.pos)
+        if match:
+            self.pos = match.start()
+            return self.source[self.start : match.start()]
+        return None
+
+    def skip(self, pattern: Pattern[str]) -> bool:
+        match = pattern.match(self.source, self.pos)
+        if match:
+            self.pos += match.end() - match.start()
+            self.start = self.pos
+            return True
+        return False
+
+    def accept_whitespace_control(self) -> bool:
+        ch = self.peek()
+        if ch in ("-", "~"):
+            self.pos += 1
+            self.emit("TOKEN_WC", ch)
+            return True
+        return False
+
+    def lex_markup(self) -> _StateFn | None:
+        value = self.scan(_RE_MARKUP_START)
+
+        if value == r"{{":
+            self.emit("TOKEN_OUT_START", value)
+            self.accept_whitespace_control()
+            self.skip(_RE_TRIVIA)
+            return self.lex_expression
+
+        if value == r"{%":
+            self.emit("TOKEN_TAG_START", value)
+            self.accept_whitespace_control()
+            self.skip(_RE_TRIVIA)
+            return self.lex_tag
+
+        return self.lex_other
+
+    def lex_expression(self) -> _StateFn | None:
+        while True:
+            self.skip(_RE_TRIVIA)
+
+            if value := self.scan(_RE_INT):
+                self.emit("TOKEN_INT", value)
+            elif value := self.scan(_RE_PUNCTUATION):
+                self.emit(_TOKEN_MAP.get(value, "TOKEN_UNKNOWN"), value)
+            elif value := self.scan(_RE_WORD):
+                self.emit(_TOKEN_MAP.get(value, "TOKEN_WORD"), value)
+            else:
+                peeked = self.peek()
+                if peeked == "'":
+                    self.pos += 1
+                    self.start = self.pos
+                    self.scan_string("'", "TOKEN_SINGLE_QUOTE_STRING")
+                elif peeked == '"':
+                    self.pos += 1
+                    self.start = self.pos
+                    self.scan_string('"', "TOKEN_DOUBLE_QUOTE_STRING")
+                else:
+                    break
+
+        self.accept_whitespace_control()
+        value = self.scan(_RE_MARKUP_END)
+
+        if value == r"}}":
+            self.emit("TOKEN_OUT_END", value)
+        elif value == r"%}":
+            self.emit("TOKEN_TAG_END", value)
+        elif value in (r"%", r"}"):
+            raise TemplateSyntaxError(
+                "incomplete markup detected",
+                token=_Token("TOKEN_ERROR", value, self.start),
+            )
+        else:
+            raise TemplateSyntaxError(
+                f"unexpected {self.peek()!r}",
+                token=_Token("TOKEN_ERROR", self.next(), self.start),
+            )
+
+        return self.lex_markup
+
+    def lex_tag(self) -> _StateFn | None:
+        if tag_name := self.scan(_RE_TAG_NAME):
+            self.emit("TOKEN_TAG_NAME", tag_name)
+            self.skip(_RE_TRIVIA)
+            return self.lex_expression
+
+        raise TemplateSyntaxError(
+            "unknown, missing or malformed tag name",
+            token=_Token("TOKEN_UNKNOWN", self.peek(), self.start),
+        )
+
+    def lex_other(self) -> _StateFn | None:
+        if value := self.scan_until(_RE_MARKUP_START):
+            self.emit("TOKEN_OTHER", value)
+            return self.lex_markup
+
+        self.pos = len(self.source)
+
+        if self.pos > self.start:
+            self.emit("TOKEN_OTHER", self.source[self.start])
+
+        return None
+
+    def scan_string(self, quote: str, kind: str) -> None:
+        if self.peek() == quote:
+            # Empty string
+            self.pos += 1
+            self.start = self.pos
+            self.emit(kind, "")
+            return
+
+        while True:
+            ch = self.next()
+
+            if ch == "\\":
+                peeked = self.peek()
+                if peeked in _ESCAPES or peeked == quote:
+                    self.pos += 1
+                else:
+                    raise TemplateSyntaxError(
+                        "invalid escape sequence",
+                        token=_Token("TOKEN_ERROR", peeked, self.pos + 1),
+                    )
+
+            if ch == quote:
+                self.emit(kind, self.source[self.start : self.pos - 1])
+                return
+
+            if not ch:
+                raise TemplateSyntaxError(
+                    "unclosed string literal",
+                    token=_Token("TOKEN_ERROR", quote, self.start),
+                )
+
+
+class Markup(Protocol):
+    """The interface for a tag or output statement."""
+
+    def render(self, data: _Scope, buffer: list[str]) -> None:
+        """Render this node to _buffer_. with reference to variables in _data_."""
+        ...
+
+
+class Expression(Protocol):
+    """The interface for a loop or logical expression."""
+
+    def evaluate(self, data: _Scope) -> object:
+        """Evaluate this expression with reference to variables in _data_."""
+        ...
+
+
+Node: TypeAlias = str | Markup
+
+
+class Output:
     def __init__(self, expression: Expression):
         self.expression = expression
 
@@ -68,7 +325,7 @@ class _Output:
         buffer.append(str(self.expression.evaluate(data)))
 
 
-class _IfTag:
+class IfTag:
     def __init__(
         self,
         blocks: list[tuple[Expression, list[Node]]],
@@ -95,7 +352,7 @@ class _IfTag:
                     node.render(data, buffer)
 
 
-class _ForTag:
+class ForTag:
     def __init__(
         self,
         name: str,
@@ -257,200 +514,6 @@ class _Variable:
         return _resolve(self.path, data)
 
 
-class _Token(NamedTuple):
-    kind: str
-    value: str
-    start_index: int
-
-
-_StateFn: TypeAlias = Callable[[], Optional["_StateFn"]]
-
-_RE_TRIVIA = re.compile(r"[ \n\r\t]+")
-_RE_TAG_NAME = re.compile(r"(?:end)?(?:if|for|elif|elsif|else)")
-_RE_WORD = re.compile(r"[\u0080-\uFFFFa-zA-Z_][\u0080-\uFFFFa-zA-Z0-9_-]*")
-_RE_MARKUP_START = re.compile(r"\{\{|\{%")
-_RE_MARKUP_END = re.compile(r"[\}%]\}?")
-_RE_PUNCTUATION = re.compile(r"[\[\]\.\(\)]")
-_RE_INT = re.compile(r"-?\d+")
-
-_TOKEN_MAP: dict[str, str] = {
-    "[": "TOKEN_L_BRACKET",
-    "]": "TOKEN_R_BRACKET",
-    ".": "TOKEN_DOT",
-    "(": "TOKEN_L_PAREN",
-    ")": "TOKEN_R_PAREN",
-    "and": "TOKEN_AND",
-    "or": "TOKEN_OR",
-    "not": "TOKEN_NOT",
-    "in": "TOKEN_IN",
-}
-
-_ESCAPES = frozenset(["b", "f", "n", "r", "t", "u", "/", "\\"])
-
-
-class _Scanner:
-    def __init__(self, source: str):
-        self.source = source
-        self.tokens: list[_Token] = []
-        self.start = 0
-        self.pos = 0
-
-        state: _StateFn | None = self.lex_markup
-        while state is not None:
-            state = state()
-
-    def emit(self, kind: str, value: str) -> None:
-        self.tokens.append(_Token(kind, value, self.start))
-        self.start = self.pos
-
-    def next(self) -> str:
-        try:
-            ch = self.source[self.pos]
-            self.pos += 1
-            return ch
-        except IndexError:
-            return ""
-
-    def peek(self) -> str:
-        try:
-            return self.source[self.pos]
-        except IndexError:
-            return ""
-
-    def scan(self, pattern: Pattern[str]) -> str | None:
-        match = pattern.match(self.source, self.pos)
-        if match:
-            self.pos += match.end() - match.start()
-            return match[0]
-        return None
-
-    def scan_until(self, pattern: Pattern[str]) -> str | None:
-        match = pattern.search(self.source, self.pos)
-        if match:
-            self.pos = match.start()
-            return self.source[self.start : match.start()]
-        return None
-
-    def skip(self, pattern: Pattern[str]) -> bool:
-        match = pattern.match(self.source, self.pos)
-        if match:
-            self.pos += match.end() - match.start()
-            self.start = self.pos
-            return True
-        return False
-
-    def accept_whitespace_control(self) -> bool:
-        ch = self.peek()
-        if ch in ("-", "+", "~"):
-            self.pos += 1
-            self.emit("TOKEN_WC", ch)
-            return True
-        return False
-
-    def accept_end_of_expression(self) -> _StateFn | None:
-        self.accept_whitespace_control()
-        value = self.scan(_RE_MARKUP_END)
-
-        if value == r"}}":
-            self.emit("TOKEN_OUT_END", value)
-        elif value == r"%}":
-            self.emit("TOKEN_TAG_END", value)
-        elif value in (r"%", r"}"):
-            raise LiquidSyntaxError("incomplete markup detected")
-        else:
-            # TODO: or unknown token
-            raise LiquidSyntaxError("expected end of expression")
-
-        return self.lex_markup
-
-    def lex_markup(self) -> _StateFn | None:
-        value = self.scan(_RE_MARKUP_START)
-
-        if value == r"{{":
-            self.emit("TOKEN_OUT_START", value)
-            self.accept_whitespace_control()
-            self.skip(_RE_TRIVIA)
-            return self.lex_expression
-
-        if value == r"{%":
-            self.emit("TOKEN_TAG_START", value)
-            self.accept_whitespace_control()
-            self.skip(_RE_TRIVIA)
-            return self.lex_tag
-
-        return self.lex_other
-
-    def lex_expression(self) -> _StateFn | None:
-        while True:
-            self.skip(_RE_TRIVIA)
-
-            if value := self.scan(_RE_INT):
-                self.emit("TOKEN_INT", value)
-            elif value := self.scan(_RE_PUNCTUATION):
-                self.emit(_TOKEN_MAP.get(value, "TOKEN_UNKNOWN"), value)
-            elif value := self.scan(_RE_WORD):
-                self.emit(_TOKEN_MAP.get(value, "TOKEN_WORD"), value)
-            else:
-                peeked = self.peek()
-                if peeked == "'":
-                    self.pos += 1
-                    self.start = self.pos
-                    self.scan_string("'", "TOKEN_SINGLE_QUOTE_STRING")
-                elif peeked == '"':
-                    self.pos += 1
-                    self.start = self.pos
-                    self.scan_string('"', "TOKEN_DOUBLE_QUOTE_STRING")
-                else:
-                    break
-
-        return self.accept_end_of_expression()
-
-    def lex_tag(self) -> _StateFn | None:
-        if tag_name := self.scan(_RE_TAG_NAME):
-            self.emit("TOKEN_TAG_NAME", tag_name)
-            self.skip(_RE_TRIVIA)
-            return self.lex_expression
-
-        raise LiquidSyntaxError("missing or malformed tag name")
-
-    def lex_other(self) -> _StateFn | None:
-        if value := self.scan_until(_RE_MARKUP_START):
-            self.emit("TOKEN_OTHER", value)
-            return self.lex_markup
-
-        self.pos = len(self.source)
-
-        if self.pos > self.start:
-            self.emit("TOKEN_OTHER", self.source[self.start])
-
-        return None
-
-    def scan_string(self, quote: str, kind: str) -> None:
-        if self.peek() == quote:
-            # Empty string
-            self.pos += 1
-            self.start = self.pos
-            self.emit(kind, "")
-            return
-
-        while True:
-            ch = self.next()
-
-            if ch == "\\":
-                peeked = self.peek()
-                if peeked in _ESCAPES or peeked == quote:
-                    self.pos += 1
-                else:
-                    raise LiquidSyntaxError("invalid escape sequence")
-
-            if ch == quote:
-                self.emit(kind, self.source[self.start : self.pos - 1])
-                return
-
-            if not ch:
-                raise LiquidSyntaxError("unclosed string literal")
-
-
 _TERMINATE_EXPRESSION: set[str] = {
     "TOKEN_WC",
     "TOKEN_OUT_END",
@@ -487,7 +550,7 @@ _PRECEDENCES: dict[str, int] = {
 _BINARY_OPERATORS: set[str] = {"TOKEN_AND", "TOKEN_OR"}
 
 
-class _Parser:
+class Parser:
     def __init__(self, tokens: list[_Token]):
         self.tokens = tokens
         self.pos = 0
@@ -517,25 +580,28 @@ class _Parser:
     def eat(self, kind: str, message: str | None = None) -> _Token:
         token = self.next()
         if token.kind != kind:
-            raise LiquidSyntaxError(message or f"unexpected {token.kind}")
+            raise TemplateSyntaxError(
+                message or f"unexpected {token.value!r}", token=token
+            )
         return token
 
     def eat_empty_tag(self, name: str) -> _Token:
-        print("!!", self.current())
-        self.eat("TOKEN_TAG_START", f"expected tag {name}")
+        self.eat("TOKEN_TAG_START", f"expected tag {name!r}")
         self.skip_wc()
-        name_token = self.eat("TOKEN_TAG_NAME", f"expected tag {name}")
+        name_token = self.eat("TOKEN_TAG_NAME", f"expected tag {name!r}")
 
         if name_token.value != name:
-            raise LiquidSyntaxError(f"unexpected tag {name_token.value}")
+            raise TemplateSyntaxError(
+                f"unexpected tag {name_token.value!r}", token=name_token
+            )
 
         self.carry_wc()
-        self.eat("TOKEN_TAG_END", f"expected tag {name}")
+        self.eat("TOKEN_TAG_END", f"expected tag {name!r}")
         return name_token
 
     def expect_expression(self) -> None:
         if self.current().kind in _TERMINATE_EXPRESSION:
-            raise LiquidSyntaxError("missing expression")
+            raise TemplateSyntaxError("missing expression", token=self.current())
 
     def peek_wc(self) -> Optional[str]:
         token = self.peek()
@@ -566,7 +632,7 @@ class _Parser:
 
         if token.kind == "TOKEN_TAG_NAME":
             return token.value
-        raise LiquidSyntaxError("missing tag name")
+        raise TemplateSyntaxError("missing tag name", token=token)
 
     def trim(self, value: str, left_trim: str | None, right_trim: str | None) -> str:
         if left_trim == right_trim:
@@ -592,7 +658,8 @@ class _Parser:
         nodes: list[Node] = []
 
         while True:
-            kind, value, _ = self.next()
+            token = self.next()
+            kind, value, _ = token
 
             if self.current().kind == "TOKEN_WC":
                 self.pos += 1
@@ -609,13 +676,13 @@ class _Parser:
             elif kind == "TOKEN_EOF":
                 return nodes
             else:
-                raise LiquidSyntaxError(f"unexpected {kind}")
+                raise TemplateSyntaxError(f"unexpected {kind}", token=token)
 
     def parse_output(self) -> Markup:
         expr = self.parse_primary()
         self.carry_wc()
         self.eat("TOKEN_OUT_END")
-        return _Output(expr)
+        return Output(expr)
 
     def parse_tag(self) -> Markup:
         token = self.eat("TOKEN_TAG_NAME")
@@ -647,7 +714,7 @@ class _Parser:
                 default = None
 
             self.eat_empty_tag("endif")
-            return _IfTag(blocks, default)
+            return IfTag(blocks, default)
 
         if token.value == "for":
             self.expect_expression()
@@ -666,12 +733,13 @@ class _Parser:
                 default = None
 
             self.eat_empty_tag("endfor")
-            return _ForTag(identifier, target, block, default)
+            return ForTag(identifier, target, block, default)
 
-        raise LiquidSyntaxError(f"unexpected tag {token.value}")
+        raise TemplateSyntaxError(f"unexpected tag {token.value!r}", token=token)
 
     def parse_primary(self, precedence: int = _PRECEDENCE_LOWEST) -> Expression:
-        left_kind = self.current().kind
+        token = self.current()
+        left_kind = token.kind
 
         left: Expression
 
@@ -683,13 +751,15 @@ class _Parser:
             self.pos += 1
             left = _LogicalNotExpression(self.parse_primary(_PRECEDENCE_PREFIX))
         else:
-            raise LiquidSyntaxError(f"unexpected {left_kind}")
+            raise TemplateSyntaxError(f"unexpected {left_kind}", token=token)
 
         while True:
             kind = self.current().kind
 
             if kind == "TOKEN_UNKNOWN":
-                raise LiquidSyntaxError(f"unexpected {self.current().value!r}")
+                raise TemplateSyntaxError(
+                    f"unexpected {self.current().value!r}", token=self.current()
+                )
 
             if (
                 kind == "TOKEN_EOF"
@@ -703,7 +773,8 @@ class _Parser:
         return left
 
     def parse_infix_expression(self, left: Expression) -> Expression:
-        kind = self.next().kind
+        token = self.next()
+        kind = token.kind
         precedence = _PRECEDENCES.get(kind, _PRECEDENCE_LOWEST)
         right = self.parse_primary(precedence)
 
@@ -713,7 +784,7 @@ class _Parser:
         if kind == "TOKEN_OR":
             return _LogicalOrExpression(left, right)
 
-        raise LiquidSyntaxError(f"unexpected operator {kind}")
+        raise TemplateSyntaxError(f"unexpected operator {kind}", token=token)
 
     def parse_group(self) -> Expression:
         self.eat("TOKEN_L_PAREN")
@@ -728,7 +799,9 @@ class _Parser:
     def parse_identifier(self) -> str:
         token = self.eat("TOKEN_WORD")
         if self.current().kind in ("TOKEN_DOT", "TOKEN_L_BRACKET"):
-            raise LiquidSyntaxError("expected an identifier, found a path")
+            raise TemplateSyntaxError(
+                "expected an identifier, found a path", token=token
+            )
         return token.value
 
     def parse_path(self) -> Expression:
@@ -748,7 +821,8 @@ class _Parser:
                 return _Variable(segments)
 
     def parse_bracketed_path_selector(self) -> str | int:
-        kind, value, _ = self.next()
+        token = self.next()
+        kind, value, _ = token
         segment: int | str
 
         if kind == "TOKEN_INT":
@@ -756,15 +830,16 @@ class _Parser:
         elif kind in ("TOKEN_DOUBLE_QUOTE_STRING", "TOKEN_SINGLE_QUOTE_STRING"):
             segment = value
         elif kind == "TOKEN_R_BRACKET":
-            raise LiquidSyntaxError("empty bracketed segment")
+            raise TemplateSyntaxError("empty bracketed segment", token=token)
         else:
-            raise LiquidSyntaxError(f"unexpected {kind}")
+            raise TemplateSyntaxError(f"unexpected {kind}", token=token)
 
         self.eat("TOKEN_R_BRACKET")
         return segment
 
     def parse_shorthand_path_selector(self) -> str | int:
-        kind, value, _ = self.next()
+        token = self.next()
+        kind, value, _ = token
 
         if kind == "TOKEN_INT":
             return int(value)
@@ -772,4 +847,4 @@ class _Parser:
         if kind in ("TOKEN_WORD", "TOKEN_AND", "TOKEN_OR", "TOKEN_NOT"):
             return value
 
-        raise LiquidSyntaxError(f"unexpected {kind}")
+        raise TemplateSyntaxError(f"unexpected {kind}", token=token)
