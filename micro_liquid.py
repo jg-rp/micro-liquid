@@ -409,7 +409,10 @@ class Output:
 
     def render(self, data: Scope, buffer: list[str]) -> None:
         value = self.expression.evaluate(data)
-        value = json.dumps(value) if isinstance(value, (list, dict)) else str(value)
+        # TODO: a more general solution to serializing objects
+        value = (
+            json.dumps(value) if isinstance(value, (list, dict, tuple)) else str(value)
+        )
         buffer.append(value)
 
 
@@ -459,6 +462,9 @@ class ForTag:
         if not isinstance(target, Iterable):
             return
 
+        if isinstance(target, Mapping):
+            target = target.items()
+
         namespace: dict[str, object] = {}
         rendered = False
 
@@ -503,7 +509,7 @@ class StrictUndefined(Undefined):
         raise UndefinedVariableError(f"{self.name!r} is undefined", token=self.token)
 
     def __bool__(self) -> bool:
-        raise UndefinedVariableError(f"{self.name!r} is undefined", token=self.token)
+        return False
 
     def __iter__(self) -> Iterable[object]:
         raise UndefinedVariableError(f"{self.name!r} is undefined", token=self.token)
@@ -823,7 +829,7 @@ class Parser:
             block = self.parse(_END_IF_BLOCK)
             blocks.append((expr, block))
 
-            while self.tag("elsif"):
+            while self.tag("elsif") or self.tag("elif"):
                 self.eat("TOKEN_TAG_START")
                 self.skip_wc()
                 self.eat("TOKEN_TAG_NAME")
@@ -855,7 +861,7 @@ class Parser:
 
             if self.tag("else"):
                 self.eat_empty_tag("else")
-                default = self.parse(_END_IF_BLOCK)
+                default = self.parse(_END_FOR_BLOCK)
             else:
                 default = None
 

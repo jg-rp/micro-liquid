@@ -4,11 +4,12 @@
 
 ## Table of Contents
 
-- [Installation](#installation)
+- [Install](#install)
+- [Example](#example)
 - [About](#about)
 - [License](#license)
 
-## Installation
+## Install
 
 ```console
 pip install micro-liquid
@@ -27,7 +28,7 @@ print(template.render({"you": "World"}))  # Hello, World!
 
 Micro Liquid implements minimal, Liquid-like templating. You can think of it as a non-evaluating alternative to f-strings or t-strings, where templates are data and not always string literals inside Python source files.
 
-Liquid ([Python Liquid](https://github.com/jg-rp/liquid) or [Shopify/liquid](https://github.com/Shopify/liquid), for example) caters for situations where end users manage their own templates. In this scenario, it's reasonable to expect some amount of application/display logic to be embedded within template text. In other scenarios we'd very much want to keep application logic out of template text.
+Full-featured Liquid ([Python Liquid](https://github.com/jg-rp/liquid) or [Shopify/liquid](https://github.com/Shopify/liquid), for example) caters for situations where end users manage their own templates. In this scenario, it's reasonable to expect some amount of application/display logic to be embedded within template text. In other scenarios we'd very much want to keep application logic out of template text.
 
 With that in mind, Micro Liquid offers a greatly reduced feature set, implemented in a single Python file, so you can copy and paste it and hack on it if needed.
 
@@ -47,6 +48,16 @@ TODO:
 - Nested variables are not allowed.
 - Lists and dictionaries are output in JSON format.
 - Any `Iterable` is can be looped over with the `{% for %}` tag. Non-iterable objects are silently ignored.
+- Looping over dictionaries (or any Mapping) iterates key/value pairs.
+- No `forloop` object
+
+### What's included?
+
+TODO:
+
+### What's not included?
+
+TODO:
 
 ### Undefined variables
 
