@@ -55,6 +55,7 @@ def render(
     source: str,
     data: Mapping[str, object],
     *,
+    serializer: Callable[[object], str] | None = None,
     undefined: Type[Undefined] | None = None,
 ) -> str:
     """Render template _source_ with variables from _data_.
@@ -62,14 +63,21 @@ def render(
     Use `template = Template(source)` then `template.render(data)` if you need
     to render the same template multiple times with different data.
     """
-    return Template(source, undefined=undefined).render(data)
+    return Template(source, serializer=serializer, undefined=undefined).render(data)
 
 
 class Template:
     """A compiled template, ready to be rendered."""
 
-    def __init__(self, source: str, *, undefined: Type[Undefined] | None = None):
+    def __init__(
+        self,
+        source: str,
+        *,
+        serializer: Callable[[object], str] | None = None,
+        undefined: Type[Undefined] | None = None,
+    ):
         self.source = source
+        self.serializer = serializer or serialize
         self.undefined = undefined or Undefined
 
         try:
@@ -80,7 +88,7 @@ class Template:
 
     def render(self, data: Mapping[str, object]) -> str:
         """Render this template with variables from _data_."""
-        scope = Scope(data, undefined=self.undefined)
+        scope = Scope(data, serializer=self.serializer, undefined=self.undefined)
         buffer: list[str] = []
         for node in self.nodes:
             if isinstance(node, str):
@@ -403,17 +411,17 @@ class Expression(Protocol):
 Node: TypeAlias = str | Markup
 
 
+def serialize(obj: object) -> str:
+    return json.dumps(obj) if isinstance(obj, (list, dict, tuple)) else str(obj)
+
+
 class Output:
     def __init__(self, expression: Expression):
         self.expression = expression
 
     def render(self, data: Scope, buffer: list[str]) -> None:
         value = self.expression.evaluate(data)
-        # TODO: a more general solution to serializing objects
-        value = (
-            json.dumps(value) if isinstance(value, (list, dict, tuple)) else str(value)
-        )
-        buffer.append(value)
+        buffer.append(data.serialize(value))
 
 
 class IfTag:
@@ -522,9 +530,11 @@ class Scope(Mapping[str, object]):
     def __init__(
         self,
         *maps: Mapping[str, object],
+        serializer: Callable[[object], str] = json.dumps,
         undefined: Type[Undefined] = Undefined,
     ):
         self._maps = deque(maps)
+        self.serialize = serializer
         self.undefined = undefined
 
     def __getitem__(self, key: str) -> object:

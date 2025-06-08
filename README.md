@@ -46,7 +46,6 @@ TODO:
 - There are **no** literal strings, Booleans, integers, floats or null/nil/None.
 - There are **no** `{% break %}` or `{% continue %}` tags.
 - Nested variables are not allowed.
-- Lists and dictionaries are output in JSON format.
 - Any `Iterable` is can be looped over with the `{% for %}` tag. Non-iterable objects are silently ignored.
 - Looping over dictionaries (or any Mapping) iterates key/value pairs.
 - No `forloop` object
@@ -101,6 +100,49 @@ class MyUndefined(Undefined):
 t = Template("{{ foo.nosuchthing }}", undefined=MyUndefined)
 
 print(t.render({"foo": {}}))  # <MISSING>
+```
+
+### Serializing objects
+
+By default, when outputting an object with `{{` and `}}`, lists, dictionaries and tuples are rendered in JSON format. For all other objects we render the result of `str(obj)`.
+
+You can change this behavior by passing a callable to the `Template` constructor or `render` function as the `serializer` keyword argument. The callable should accept an object and return its string representation suitable for output.
+
+This example shows how one might define a serializer that can dump data classes with `json.dumps`.
+
+```python
+import json
+from dataclasses import asdict
+from dataclasses import dataclass
+from dataclasses import is_dataclass
+
+from micro_liquid import Template
+
+
+@dataclass
+class SomeData:
+    foo: str
+    bar: int
+
+
+def json_default(obj: object) -> object:
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return asdict(obj)
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
+
+def my_serializer(obj: object) -> str:
+    return (
+        json.dumps(obj, default=json_default)
+        if isinstance(obj, (list, dict, tuple))
+        else str(obj)
+    )
+
+
+template = Template("{{ some_object }}", serializer=my_serializer)
+data = {"some_object": [SomeData("hello", 42)]}
+
+print(template.render(data))  # [{"foo": "hello", "bar": 42}]
 ```
 
 ## License
