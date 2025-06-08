@@ -33,6 +33,18 @@ TEST_CASES: list[Case] = [
         "result": "foo",
     },
     {
+        "name": "non existent property name with a space in it",
+        "template": '{{ product["no such thing"] }}',
+        "data": {"product": {"foo bar": "foo"}},
+        "result": "",
+    },
+    {
+        "name": "bracketed variable, empty quotes",
+        "template": '{{ product[""] }}',
+        "data": {"product": {"": "foo"}},
+        "result": "foo",
+    },
+    {
         "name": "undefined variable",
         "template": "{{ nosuchthing }}",
         "data": {},
@@ -45,16 +57,28 @@ TEST_CASES: list[Case] = [
         "result": "",
     },
     {
-        "name": "access an array item by index",
+        "name": "access a list item by index",
         "template": "{{ product.tags[1] }}",
         "data": {"product": {"tags": ["sports", "garden"]}},
         "result": "garden",
+    },
+    {
+        "name": "list index out of range",
+        "template": "{{ product.tags[99] }}",
+        "data": {"product": {"tags": ["sports", "garden"]}},
+        "result": "",
     },
     {
         "name": "shorthand index",
         "template": "{{ product.tags.1 }}",
         "data": {"product": {"tags": ["sports", "garden"]}},
         "result": "garden",
+    },
+    {
+        "name": "attempt to access a property of a list",
+        "template": "{{ product.tags.foo }}",
+        "data": {"product": {"tags": ["sports", "garden"]}},
+        "result": "",
     },
     {
         "name": "access an array item by negative index",

@@ -397,7 +397,7 @@ class Markup(Protocol):
 
     def render(self, data: Scope, buffer: list[str]) -> None:
         """Render this node to _buffer_ with reference to variables in _data_."""
-        ...
+        ...  # pragma: no cov
 
 
 class Expression(Protocol):
@@ -405,7 +405,7 @@ class Expression(Protocol):
 
     def evaluate(self, data: Scope) -> object:
         """Evaluate this expression with reference to variables in _data_."""
-        ...
+        ...  # pragma: no cov
 
 
 Node: TypeAlias = str | Markup
@@ -509,7 +509,7 @@ class Undefined:
         return False
 
     def __iter__(self) -> Iterable[object]:
-        yield ""
+        yield from ()
 
 
 class StrictUndefined(Undefined):
@@ -804,17 +804,19 @@ class Parser:
             token = self.next()
             kind, value, _ = token
 
-            if self.current().kind == "TOKEN_WC":
-                self.pos += 1
-
             if kind == "TOKEN_OTHER":
                 nodes.append(self.trim(value, self.whitespace_carry, self.peek_wc()))
             elif kind == "TOKEN_OUT_START":
+                if self.current().kind == "TOKEN_WC":
+                    self.pos += 1
                 nodes.append(self.parse_output())
             elif kind == "TOKEN_TAG_START":
                 if end and self.peek_tag_name() in end:
                     self.pos -= 1
                     return nodes
+
+                if self.current().kind == "TOKEN_WC":
+                    self.pos += 1
                 nodes.append(self.parse_tag())
             elif kind == "TOKEN_EOF":
                 return nodes
@@ -932,11 +934,7 @@ class Parser:
     def parse_group(self) -> Expression:
         self.eat("TOKEN_L_PAREN")
         expr = self.parse_primary()
-
-        if self.current().kind not in _TERMINATE_GROUPED_EXPRESSION:
-            expr = self.parse_infix_expression(expr)
-
-        self.eat("TOKEN_R_PAREN")
+        self.eat("TOKEN_R_PAREN", "unbalanced parentheses")
         return expr
 
     def parse_identifier(self) -> str:

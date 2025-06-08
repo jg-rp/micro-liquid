@@ -109,6 +109,16 @@ TEST_CASES = [
         template=r"{{ a.b['foo']] }}",
         expect_msg="unexpected ']'",
     ),
+    Case(
+        description="unclosed string literal",
+        template=r"{{ a.b['foo]] }}",
+        expect_msg="unclosed string literal",
+    ),
+    Case(
+        description="unbalanced parentheses",
+        template=r"{% if true and (false and true %}a{% else %}b{% endif %}",
+        expect_msg="unbalanced parentheses",
+    ),
 ]
 
 

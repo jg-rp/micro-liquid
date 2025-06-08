@@ -51,6 +51,32 @@ TEST_CASES: list[Case] = [
         "result": "True",
     },
     {
+        "name": "and binds more tightly than or",
+        "template": "{{ x or y and z  }}",
+        "data": {"x": False, "y": True, "z": True},
+        "result": "True",
+    },
+    {
+        "name": "group terms with parentheses",
+        "template": (
+            "{% if (true and (false and (false or true))) %}a{% else %}b{% endif %}"
+        ),
+        "data": {"true": True, "false": False},
+        "result": "b",
+    },
+    {
+        "name": "more precedence",
+        "template": "{% if false and false or true %}a{% else %}b{% endif %}",
+        "data": {"true": True, "false": False},
+        "result": "a",
+    },
+    {
+        "name": "more grouping",
+        "template": "{% if false and (false or true) %}a{% else %}b{% endif %}",
+        "data": {"true": True, "false": False},
+        "result": "b",
+    },
+    {
         "name": "loop target",
         "template": "{% for x in y or a %}{{ x }}, {% endfor %}",
         "data": {"a": [1, 2, 3]},

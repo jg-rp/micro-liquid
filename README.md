@@ -94,7 +94,7 @@ class MyUndefined(Undefined):
         return False
 
     def __iter__(self) -> Iterator[object]:
-        yield ""
+        yield from ()
 
 
 t = Template("{{ foo.nosuchthing }}", undefined=MyUndefined)

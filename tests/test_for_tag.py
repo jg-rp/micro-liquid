@@ -22,6 +22,18 @@ def test_loop_over_a_dict() -> None:
     assert render(source, data) == "(a, 1), (b, 2), (c, 3), "
 
 
+def test_loop_target_is_not_iterable() -> None:
+    source = "{% for x in y %}({{ x.0 }}, {{ x.1 }}), {% endfor %}"
+    data = {"y": 42}
+    assert render(source, data) == ""
+
+
+def test_loop_target_is_undefined() -> None:
+    source = "{% for x in nosuchthing %}{{ x }}, {% endfor %}"
+    data: dict[str, object] = {}
+    assert render(source, data) == ""
+
+
 def test_limit_is_not_allowed() -> None:
     source = "{% for x in y limit: 2 %}{% endfor %}"
     data = {"y": [1, 2, 3]}
@@ -37,9 +49,9 @@ def test_reversed_is_not_allowed() -> None:
 
 
 def test_else_empty_list() -> None:
-    source = "{% for x in y %}{{ x }}, {% else %}default{% endfor %}"
-    data: dict[str, object] = {"y": []}
-    assert render(source, data) == "default"
+    source = "{% for x in y %}{{ x }}, {% else %}default {{ z }}{% endfor %}"
+    data: dict[str, object] = {"y": [], "z": "default"}
+    assert render(source, data) == "default default"
 
 
 def test_else_non_empty_list() -> None:

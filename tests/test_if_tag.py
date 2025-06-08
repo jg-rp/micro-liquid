@@ -10,6 +10,12 @@ def test_else() -> None:
     assert render(source, data) == "c"
 
 
+def test_else_block() -> None:
+    source = "{% if a %}a{% elif b %}b{% else %}{{ c }}{% endif %}"
+    data = {"a": False, "b": False, "c": "d"}
+    assert render(source, data) == "d"
+
+
 def test_elif() -> None:
     source = "{% if a %}a{% elif b %}b{% else %}c{% endif %}"
     data = {"a": False, "b": True}

@@ -32,13 +32,16 @@ Source = "https://github.com/jg-rp/micro-liquid"
 [tool.hatch.build.targets.wheel]
 packages = ["."]
 
-[tool.hatch.envs.dev]
-extra-dependencies = ["mypy>=1.0.0", "ruff", "pytest"]
+[tool.hatch.envs.default]
+extra-dependencies = ["mypy>=1.0.0", "ruff", "pytest", "pytest-cov"]
 
-[tool.hatch.envs.dev.scripts]
+[tool.hatch.envs.default.scripts]
 test = "pytest {args}"
 typing = "mypy"
 lint = "ruff check ."
+cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=micro_liquid --cov=tests {args}"
+cov-html = "pytest --cov-report=html --cov-config=pyproject.toml --cov=micro_liquid --cov=tests {args}"
+no-cov = "cov --no-cov {args}"
 
 [tool.mypy]
 files = "micro_liquid.py"
@@ -95,3 +98,6 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["PLR2004", "FBT003", "S101"]
+
+[tool.coverage.report]
+exclude_lines = ["no cov", "if __name__ == .__main__.:", "if TYPE_CHECKING:"]
