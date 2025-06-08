@@ -334,7 +334,7 @@ class Scanner:
         self.pos = len(self.source)
 
         if self.pos > self.start:
-            self.emit("TOKEN_OTHER", self.source[self.start])
+            self.emit("TOKEN_OTHER", self.source[self.start :])
 
         return None
 
