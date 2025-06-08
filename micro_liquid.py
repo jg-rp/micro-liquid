@@ -39,32 +39,65 @@ from typing import NamedTuple
 from typing import Optional
 from typing import Protocol
 from typing import Sequence
+from typing import Type
 from typing import TypeAlias
+
+__all__ = (
+    "render",
+    "Template",
+    "TemplateSyntaxError",
+    "StrictUndefined",
+    "Undefined",
+)
+
+
+def render(
+    source: str,
+    data: Mapping[str, object],
+    *,
+    undefined: Type[Undefined] | None = None,
+) -> str:
+    """Render template _source_ with variables from _data_.
+
+    Use `template = Template(source)` then `template.render(data)` if you need
+    to render the same template multiple times with different data.
+    """
+    return Template(source, undefined=undefined).render(data)
 
 
 class Template:
-    def __init__(self, source: str):
+    """A compiled template, ready to be rendered."""
+
+    def __init__(self, source: str, *, undefined: Type[Undefined] | None = None):
+        self.source = source
+        self.undefined = undefined or Undefined
+
         try:
             self.nodes = Parser(Scanner(source).tokens).parse()
-        except TemplateSyntaxError as err:
+        except TemplateError as err:
             err.source = source
             raise
 
     def render(self, data: Mapping[str, object]) -> str:
-        scope = _Scope(data)
+        """Render this template with variables from _data_."""
+        scope = Scope(data, undefined=self.undefined)
         buffer: list[str] = []
         for node in self.nodes:
             if isinstance(node, str):
                 buffer.append(node)
             else:
-                node.render(scope, buffer)
+                try:
+                    node.render(scope, buffer)
+                except TemplateError as err:
+                    err.source = self.source
+                    raise
         return "".join(buffer)
 
 
-class TemplateSyntaxError(Exception):
-    """An exception raised during template parsing due to unexpected template syntax."""
+class TemplateError(Exception):
+    """Base class for all template exceptions."""
 
-    def __init__(self, *args: object, token: _Token):
+    def __init__(self, *args: object, token: Token):
         super().__init__(*args)
         self.token = token
         self.source: str | None = None
@@ -116,7 +149,15 @@ class TemplateSyntaxError(Exception):
         return (line_number, column_number, current_line)
 
 
-class _Token(NamedTuple):
+class TemplateSyntaxError(TemplateError):
+    """An exception raised during template parsing due to unexpected template syntax."""
+
+
+class UndefinedVariableError(TemplateError):
+    """An exception raised by the strict undefined type."""
+
+
+class Token(NamedTuple):
     kind: str
     value: str
     start: int
@@ -150,7 +191,7 @@ _ESCAPES = frozenset(["b", "f", "n", "r", "t", "u", "/", "\\"])
 class Scanner:
     def __init__(self, source: str):
         self.source = source
-        self.tokens: list[_Token] = []
+        self.tokens: list[Token] = []
         self.start = 0
         self.pos = 0
 
@@ -159,7 +200,7 @@ class Scanner:
             state = state()
 
     def emit(self, kind: str, value: str) -> None:
-        self.tokens.append(_Token(kind, value, self.start))
+        self.tokens.append(Token(kind, value, self.start))
         self.start = self.pos
 
     def next(self) -> str:
@@ -256,12 +297,12 @@ class Scanner:
         elif value in (r"%", r"}"):
             raise TemplateSyntaxError(
                 "incomplete markup detected",
-                token=_Token("TOKEN_ERROR", value, self.start),
+                token=Token("TOKEN_ERROR", value, self.start),
             )
         else:
             raise TemplateSyntaxError(
                 f"unexpected {self.peek()!r}",
-                token=_Token("TOKEN_ERROR", self.next(), self.start),
+                token=Token("TOKEN_ERROR", self.next(), self.start),
             )
 
         return self.lex_markup
@@ -274,7 +315,7 @@ class Scanner:
 
         raise TemplateSyntaxError(
             "unknown, missing or malformed tag name",
-            token=_Token("TOKEN_UNKNOWN", self.peek(), self.start),
+            token=Token("TOKEN_UNKNOWN", self.peek(), self.start),
         )
 
     def lex_other(self) -> _StateFn | None:
@@ -310,7 +351,7 @@ class Scanner:
                 else:
                     raise TemplateSyntaxError(
                         "invalid escape sequence",
-                        token=_Token("TOKEN_ERROR", ch, self.pos),
+                        token=Token("TOKEN_ERROR", ch, self.pos),
                     )
 
             if ch == quote:
@@ -323,7 +364,7 @@ class Scanner:
                     except json.JSONDecodeError as err:
                         raise TemplateSyntaxError(
                             "invalid escape sequence",
-                            token=_Token("TOKEN_ERROR", ch, self.pos - 1),
+                            token=Token("TOKEN_ERROR", ch, self.pos - 1),
                         ) from err
                 else:
                     self.emit(kind, self.source[self.start : self.pos - 1])
@@ -332,7 +373,7 @@ class Scanner:
             if not ch:
                 raise TemplateSyntaxError(
                     "unclosed string literal",
-                    token=_Token("TOKEN_ERROR", quote, self.start),
+                    token=Token("TOKEN_ERROR", quote, self.start),
                 )
 
 
@@ -346,15 +387,15 @@ def _unescape(s: str, quote: str) -> str:
 class Markup(Protocol):
     """The interface for a tag or output statement."""
 
-    def render(self, data: _Scope, buffer: list[str]) -> None:
-        """Render this node to _buffer_. with reference to variables in _data_."""
+    def render(self, data: Scope, buffer: list[str]) -> None:
+        """Render this node to _buffer_ with reference to variables in _data_."""
         ...
 
 
 class Expression(Protocol):
     """The interface for a loop or logical expression."""
 
-    def evaluate(self, data: _Scope) -> object:
+    def evaluate(self, data: Scope) -> object:
         """Evaluate this expression with reference to variables in _data_."""
         ...
 
@@ -366,7 +407,7 @@ class Output:
     def __init__(self, expression: Expression):
         self.expression = expression
 
-    def render(self, data: _Scope, buffer: list[str]) -> None:
+    def render(self, data: Scope, buffer: list[str]) -> None:
         value = self.expression.evaluate(data)
         value = json.dumps(value) if isinstance(value, (list, dict)) else str(value)
         buffer.append(value)
@@ -381,7 +422,7 @@ class IfTag:
         self.blocks = blocks
         self.default = default
 
-    def render(self, data: _Scope, buffer: list[str]) -> None:
+    def render(self, data: Scope, buffer: list[str]) -> None:
         for expression, block in self.blocks:
             if expression.evaluate(data):
                 for node in block:
@@ -412,7 +453,7 @@ class ForTag:
         self.block = block
         self.default = default
 
-    def render(self, data: _Scope, buffer: list[str]) -> None:
+    def render(self, data: Scope, buffer: list[str]) -> None:
         target = self.target.evaluate(data)
 
         if not isinstance(target, Iterable):
@@ -440,22 +481,45 @@ class ForTag:
                     node.render(data, buffer)
 
 
-class _Missing:
+class Undefined:
+    """The object used when a template variable can not be resolved."""
+
+    def __init__(self, name: str, token: Token):
+        self.name = name
+        self.token = token
+
     def __str__(self) -> str:
         return ""
 
     def __bool__(self) -> bool:
         return False
 
-
-# TODO: store _MISSING on scope
-
-_MISSING = _Missing()
+    def __iter__(self) -> Iterable[object]:
+        yield ""
 
 
-class _Scope(Mapping[str, object]):
-    def __init__(self, *maps: Mapping[str, object]):
+class StrictUndefined(Undefined):
+    def __str__(self) -> str:
+        raise UndefinedVariableError(f"{self.name!r} is undefined", token=self.token)
+
+    def __bool__(self) -> bool:
+        raise UndefinedVariableError(f"{self.name!r} is undefined", token=self.token)
+
+    def __iter__(self) -> Iterable[object]:
+        raise UndefinedVariableError(f"{self.name!r} is undefined", token=self.token)
+
+
+_UNDEFINED = object()
+
+
+class Scope(Mapping[str, object]):
+    def __init__(
+        self,
+        *maps: Mapping[str, object],
+        undefined: Type[Undefined] = Undefined,
+    ):
         self._maps = deque(maps)
+        self.undefined = undefined
 
     def __getitem__(self, key: str) -> object:
         for mapping in self._maps:
@@ -471,7 +535,7 @@ class _Scope(Mapping[str, object]):
     def __len__(self) -> int:
         return sum(len(_map) for _map in self._maps)
 
-    def get(self, key: str, default: object = _MISSING) -> object:
+    def get(self, key: str, default: object = _UNDEFINED) -> object:
         try:
             return self[key]
         except KeyError:
@@ -484,7 +548,7 @@ class _Scope(Mapping[str, object]):
         return self._maps.popleft()
 
     @contextmanager
-    def extend(self, namespace: Mapping[str, object]) -> Iterator[_Scope]:
+    def extend(self, namespace: Mapping[str, object]) -> Iterator[Scope]:
         self.push(namespace)
         try:
             yield self
@@ -492,78 +556,89 @@ class _Scope(Mapping[str, object]):
             self.pop()
 
 
-def _resolve(
-    path: list[str | int],
-    data: Mapping[str, object],
-    *,
-    default: object = _MISSING,
-) -> object:
-    it = iter(path)
-    root = next(it, None)
-
-    if not isinstance(root, str):
-        return default
-
-    obj: object = data.get(root, default)
-
-    for segment in it:
-        if isinstance(obj, Mapping):
-            obj = obj.get(segment, default)
-        elif isinstance(obj, Sequence) and isinstance(segment, int):
-            try:
-                obj = obj[segment]
-            except IndexError:
-                obj = default
-        else:
-            return default
-
-    return obj
-
-
-class _BooleanExpression:
+class BooleanExpression:
     def __init__(self, expression: Expression):
         self.expression = expression
 
-    def evaluate(self, data: _Scope) -> bool:
+    def evaluate(self, data: Scope) -> bool:
         return bool(self.expression.evaluate(data))
 
 
-class _LogicalNotExpression:
+class LogicalNotExpression:
     def __init__(self, expression: Expression):
         self.expression = expression
 
-    def evaluate(self, data: _Scope) -> bool:
+    def evaluate(self, data: Scope) -> bool:
         return not bool(self.expression.evaluate(data))
 
 
-class _BinaryExpression:
+class BinaryExpression:
     def __init__(self, left: Expression, right: Expression):
         self.left = left
         self.right = right
 
 
-class _LogicalAndExpression(_BinaryExpression):
-    def evaluate(self, data: _Scope) -> object:
+class LogicalAndExpression(BinaryExpression):
+    def evaluate(self, data: Scope) -> object:
         left = self.left.evaluate(data)
         if left:
             return self.right.evaluate(data)
         return left
 
 
-class _LogicalOrExpression(_BinaryExpression):
-    def evaluate(self, data: _Scope) -> object:
+class LogicalOrExpression(BinaryExpression):
+    def evaluate(self, data: Scope) -> object:
         left = self.left.evaluate(data)
         if left:
             return left
         return self.right.evaluate(data)
 
 
-class _Variable:
-    def __init__(self, path: list[str | int]):
+class Variable:
+    def __init__(self, token: Token, path: list[str | int]):
+        self.token = token
         self.path = path
 
-    def evaluate(self, data: _Scope) -> object:
-        return _resolve(self.path, data)
+    def evaluate(self, data: Scope) -> object:
+        it = iter(self.path)
+        root = next(it, None)
+
+        if not isinstance(root, str):
+            return data.undefined(str(root), self.token)
+
+        obj = data.get(root, _UNDEFINED)
+
+        if obj == _UNDEFINED:
+            return data.undefined(root, self.token)
+
+        for i, segment in enumerate(it):
+            if isinstance(obj, Mapping):
+                obj = obj.get(segment, _UNDEFINED)
+            elif isinstance(obj, Sequence) and isinstance(segment, int):
+                try:
+                    obj = obj[segment]
+                except IndexError:
+                    obj = _UNDEFINED
+            else:
+                obj = _UNDEFINED
+
+            if obj == _UNDEFINED:
+                return data.undefined(self.path_to_str(self.path[: i + 2]), self.token)
+
+        return obj
+
+    def path_to_str(self, path: list[str | int]) -> str:
+        it = iter(path)
+        buf: list[str] = [str(next(it, ""))]
+        for segment in it:
+            if isinstance(segment, str):
+                if _RE_WORD.fullmatch(segment):
+                    buf.append(f".{segment}")
+                else:
+                    buf.append(f"[{segment!r}]")
+            else:
+                buf.append(f"[{segment}]")
+        return "".join(buf)
 
 
 _TERMINATE_EXPRESSION: set[str] = {
@@ -603,19 +678,19 @@ _BINARY_OPERATORS: set[str] = {"TOKEN_AND", "TOKEN_OR"}
 
 
 class Parser:
-    def __init__(self, tokens: list[_Token]):
+    def __init__(self, tokens: list[Token]):
         self.tokens = tokens
         self.pos = 0
-        self.eof = _Token("TOKEN_EOF", "", -1)
+        self.eof = Token("TOKEN_EOF", "", -1)
         self.whitespace_carry: Optional[str] = None
 
-    def current(self) -> _Token:
+    def current(self) -> Token:
         try:
             return self.tokens[self.pos]
         except IndexError:
             return self.eof
 
-    def next(self) -> _Token:
+    def next(self) -> Token:
         try:
             token = self.tokens[self.pos]
             self.pos += 1
@@ -623,13 +698,13 @@ class Parser:
         except IndexError:
             return self.eof
 
-    def peek(self, offset: int = 1) -> _Token:
+    def peek(self, offset: int = 1) -> Token:
         try:
             return self.tokens[self.pos + offset]
         except IndexError:
             return self.eof
 
-    def eat(self, kind: str, message: str | None = None) -> _Token:
+    def eat(self, kind: str, message: str | None = None) -> Token:
         token = self.next()
         if token.kind != kind:
             raise TemplateSyntaxError(
@@ -637,7 +712,7 @@ class Parser:
             )
         return token
 
-    def eat_empty_tag(self, name: str) -> _Token:
+    def eat_empty_tag(self, name: str) -> Token:
         self.eat("TOKEN_TAG_START", f"expected tag {name!r}")
         self.skip_wc()
         name_token = self.eat("TOKEN_TAG_NAME", f"expected tag {name!r}")
@@ -742,7 +817,7 @@ class Parser:
         if token.value == "if":
             blocks: list[tuple[Expression, list[Node]]] = []
             self.expect_expression()
-            expr = _BooleanExpression(self.parse_primary())
+            expr = BooleanExpression(self.parse_primary())
             self.carry_wc()
             self.eat("TOKEN_TAG_END")
             block = self.parse(_END_IF_BLOCK)
@@ -753,7 +828,7 @@ class Parser:
                 self.skip_wc()
                 self.eat("TOKEN_TAG_NAME")
                 self.expect_expression()
-                expr = _BooleanExpression(self.parse_primary())
+                expr = BooleanExpression(self.parse_primary())
                 self.carry_wc()
                 self.eat("TOKEN_TAG_END")
                 block = self.parse(_END_IF_BLOCK)
@@ -801,7 +876,7 @@ class Parser:
             left = self.parse_path()
         elif left_kind == "TOKEN_NOT":
             self.pos += 1
-            left = _LogicalNotExpression(self.parse_primary(_PRECEDENCE_PREFIX))
+            left = LogicalNotExpression(self.parse_primary(_PRECEDENCE_PREFIX))
         else:
             raise TemplateSyntaxError(f"unexpected {left_kind}", token=token)
 
@@ -831,10 +906,10 @@ class Parser:
         right = self.parse_primary(precedence)
 
         if kind == "TOKEN_AND":
-            return _LogicalAndExpression(left, right)
+            return LogicalAndExpression(left, right)
 
         if kind == "TOKEN_OR":
-            return _LogicalOrExpression(left, right)
+            return LogicalOrExpression(left, right)
 
         raise TemplateSyntaxError(f"unexpected operator {kind}", token=token)
 
@@ -858,6 +933,7 @@ class Parser:
 
     def parse_path(self) -> Expression:
         segments: list[str | int] = []
+        token = self.current()
 
         if self.current().kind == "TOKEN_WORD":
             segments.append(self.next().value)
@@ -870,7 +946,7 @@ class Parser:
                 segments.append(self.parse_shorthand_path_selector())
             else:
                 self.pos -= 1
-                return _Variable(segments)
+                return Variable(token, segments)
 
     def parse_bracketed_path_selector(self) -> str | int:
         token = self.next()

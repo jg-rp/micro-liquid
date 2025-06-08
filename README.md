@@ -48,6 +48,50 @@ TODO:
 - Lists and dictionaries are output in JSON format.
 - Any `Iterable` is can be looped over with the `{% for %}` tag. Non-iterable objects are silently ignored.
 
+### Undefined variables
+
+When a template variable or property can't be resolved, an instance of the _undefined type_ is used instead. That is, an instance of `micro_liquid.Undefined` or a subclass of it.
+
+The default _undefined type_ renders nothing when output, evaluates to `False` when tested for truthiness and is an empty iterable when looped over. You can pass an alternative _undefined type_ as the `undefined` keyword argument to the `Template` constructor to change this behavior.
+
+```python
+from micro_liquid import StrictUndefined
+from micro_liquid import Template
+
+t = Template("{{ foo.nosuchthing }}", undefined=StrictUndefined)
+
+print(t.render({"foo": {}}))
+# micro_liquid.UndefinedVariableError: 'foo.nosuchthing' is undefined
+#   -> '{{ foo.nosuchthing }}':1:3
+#   |
+# 1 | {{ foo.nosuchthing }}
+#   |    ^^^ 'foo.nosuchthing' is undefined
+```
+
+Or implement your own.
+
+```python
+from typing import Iterator
+from micro_liquid import Template
+from micro_liquid import Undefined
+
+
+class MyUndefined(Undefined):
+    def __str__(self) -> str:
+        return "<MISSING>"
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __iter__(self) -> Iterator[object]:
+        yield ""
+
+
+t = Template("{{ foo.nosuchthing }}", undefined=MyUndefined)
+
+print(t.render({"foo": {}}))  # <MISSING>
+```
+
 ## License
 
 `micro-liquid` is distributed under the terms of the [MIT](https://spdx.org/licenses/MIT.html) license.
