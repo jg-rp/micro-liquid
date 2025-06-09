@@ -7,6 +7,10 @@
 - [Install](#install)
 - [Example](#example)
 - [About](#about)
+- [What's included?](#whats-included)
+- [What's not included?](#whats-not-included)
+- [Undefined variables](#undefined-variables)
+- [Serializing objects](#serializing-objects)
 - [License](#license)
 
 ## Install
@@ -26,7 +30,7 @@ print(template.render({"you": "World"}))  # Hello, World!
 
 ## About
 
-Micro Liquid implements minimal, Liquid-like templating. You can think of it as a non-evaluating alternative to f-strings or t-strings, where templates are data and not always string literals inside Python source files.
+Micro Liquid implements minimal, Liquid-like templating. You can think of it as a non-evaluating alternative to [f-strings](https://peps.python.org/pep-0498/) or [t-strings](https://peps.python.org/pep-0750/), where templates are data and not necessarily string literals inside Python source files.
 
 Full-featured Liquid ([Python Liquid](https://github.com/jg-rp/liquid) or [Shopify/liquid](https://github.com/Shopify/liquid), for example) caters for situations where end users manage their own templates. In this scenario, it's reasonable to expect some amount of application/display logic to be embedded within template text. In other scenarios we'd very much want to keep application logic out of template text.
 
@@ -34,31 +38,81 @@ With that in mind, Micro Liquid offers a greatly reduced feature set, implemente
 
 Here, developers are expected to fully prepare data passed to `Template.render()` instead of manipulating and inspecting it within template markup.
 
-TODO:
+## What's included?
 
-- Just output, conditions and loops.
-- **No** assignment, captures, `include`/`render` or any other tags.
-- Just logical operators (`and`, `or`, `not`) with short circuit, last value semantics.
-- **No** relational operators (like `==` or `<`) or membership operators (like `contains`).
-- Includes whitespace control with `-` and `~`.
-- **No** filters
-- We use Python truthiness, not Liquid or Ruby truthiness.
-- There are **no** literal strings, Booleans, integers, floats or null/nil/None.
-- There are **no** `{% break %}` or `{% continue %}` tags.
-- Nested variables are not allowed.
-- Any `Iterable` is can be looped over with the `{% for %}` tag. Non-iterable objects are silently ignored.
+Micro Liquid support variable substitution:
+
+```liquid
+Hello, {{ some_variable }}. How are you?
+```
+
+Conditional expressions:
+
+```liquid
+{% if some_variable %}
+  more markup
+{% elsif another_variable %}
+  alternative markup
+{% else %}
+  default markup
+{% endif %}
+```
+
+And looping:
+
+```liquid
+{% for x in y %}
+  more markup with {{ x }}
+{% else %}
+  default markup (y was empty or not iterable)
+{% endfor %}
+```
+
+Micro Liquid expressions can use logical `and`, `or` and `not`, and group terms with parentheses.
+
+```liquid
+{% if not some_variable and another_variable %}
+  some markup with {{ some_variable }} and {{ another_variable }}.
+{% endif %}
+```
+
+Short circuit evaluation works too, with _last value_ semantics. Here you might use a string literal.
+
+```
+Hello, {{ user.name or "guest" }}!
+```
+
+Control whitespace before and after markup delimiters with `-` and `~`. `~` will remove newlines but retain space and tab characters. `-` strips all whitespace.
+
+```liquid
+<ul>
+{% for x in y ~%}
+  <li>{{ x }}</li>
+{% endfor -%}
+</ul>
+```
+
+## What's not included?
+
+If you need any of these features, and many more, try [Python Liquid](https://github.com/jg-rp/liquid) or [Python Liquid2](https://github.com/jg-rp/python-liquid2) instead.
+
+- Assignment, captures and snippets (`include` and `render`). Or any tag other than `if` and `for`.
+- Relational operators like `==` and `<`.
+- Membership operators like `contains` and `in`.
+- Filters.
+- Literal Booleans, integers, floats or null/nil/None.
+- `{% break %}` and `{% continue %}` tags.
+- Nested variables.
 - Looping over dictionaries (or any Mapping) iterates key/value pairs.
-- No `forloop` object
+- `forloop` helper variables.
+- `for` tag arguments like `limit` and `reversed`.
 
-### What's included?
+## Other notable behavior
 
-TODO:
+- We use Python truthiness, not Liquid or Ruby truthiness.
+- Any `Iterable` is can be looped over with the `{% for %}` tag. Non-iterable objects are silently ignored.
 
-### What's not included?
-
-TODO:
-
-### Undefined variables
+## Undefined variables
 
 When a template variable or property can't be resolved, an instance of the _undefined type_ is used instead. That is, an instance of `micro_liquid.Undefined` or a subclass of it.
 
@@ -144,6 +198,8 @@ data = {"some_object": [SomeData("hello", 42)]}
 
 print(template.render(data))  # [{"foo": "hello", "bar": 42}]
 ```
+
+TODO: Walk syntax tree
 
 ## License
 

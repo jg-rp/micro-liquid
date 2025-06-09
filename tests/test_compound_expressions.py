@@ -33,6 +33,18 @@ TEST_CASES: list[Case] = [
         "result": "99",
     },
     {
+        "name": "logical or, string literal, single quotes",
+        "template": "{{ x or 'foo' }}",
+        "data": {"x": False},
+        "result": "foo",
+    },
+    {
+        "name": "logical or, string literal, double quotes",
+        "template": '{{ x or "foo" }}',
+        "data": {"x": False},
+        "result": "foo",
+    },
+    {
         "name": "logical or, last value, falsy left",
         "template": "{{ x or y }}",
         "data": {"x": False, "y": 42},

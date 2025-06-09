@@ -79,7 +79,6 @@ class Template:
         self.source = source
         self.serializer = serializer or serialize
         self.undefined = undefined or Undefined
-
         try:
             self.nodes = Parser(Scanner(source).tokens).parse()
         except TemplateError as err:
@@ -121,7 +120,6 @@ class TemplateError(Exception):
             return super().__str__()
 
         line, col, current = context
-
         position = f"{current!r}:{line}:{col}"
         pad = " " * len(str(line))
         pointer = (" " * col) + ("^" * len(value))
@@ -610,6 +608,14 @@ class LogicalOrExpression(BinaryExpression):
         return self.right.evaluate(data)
 
 
+class StringLiteral:
+    def __init__(self, value: str):
+        self.value = value
+
+    def evaluate(self, _data: Scope) -> object:
+        return self.value
+
+
 class Variable:
     def __init__(self, token: Token, path: list[str | int]):
         self.token = token
@@ -888,7 +894,9 @@ class Parser:
 
         left: Expression
 
-        if left_kind == "TOKEN_L_PAREN":
+        if left_kind in ("TOKEN_SINGLE_QUOTE_STRING", "TOKEN_DOUBLE_QUOTE_STRING"):
+            left = StringLiteral(self.next().value)
+        elif left_kind == "TOKEN_L_PAREN":
             left = self.parse_group()
         elif left_kind in ("TOKEN_WORD", "TOKEN_L_BRACKET"):
             left = self.parse_path()
