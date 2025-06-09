@@ -1,4 +1,27 @@
-# micro-liquid
+<h1 align="center">Micro Liquid</h1>
+
+<p align="center">
+A non-evaluating alternative to f-strings and t-strings.
+</p>
+
+<p align="center">
+  <a href="https://github.com/jg-rp/micro-liquid/blob/main/LICENSE.txt">
+    <img src="https://img.shields.io/pypi/l/micro-liquid?style=flat-square" alt="License">
+  </a>
+  <a href="https://github.com/jg-rp/micro-liquid/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/jg-rp/micro-liquid/tests.yaml?branch=main&label=tests&style=flat-square" alt="Tests">
+  </a>
+  <a href="https://pypi.org/project/micro-liquid">
+    <img alt="PyPI - Downloads" src="https://img.shields.io/pypi/dm/micro-liquid?style=flat-square">
+  </a>
+  <br>
+  <a href="https://pypi.org/project/micro-liquid">
+    <img src="https://img.shields.io/pypi/v/micro-liquid.svg?style=flat-square" alt="PyPi - Version">
+  </a>
+  <a href="https://pypi.org/project/micro-liquid">
+    <img src="https://img.shields.io/pypi/pyversions/micro-liquid.svg?style=flat-square" alt="Python versions">
+  </a>
+</p>
 
 ---
 
