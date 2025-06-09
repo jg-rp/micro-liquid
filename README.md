@@ -103,7 +103,6 @@ If you need any of these features, and many more, try [Python Liquid](https://gi
 - Literal Booleans, integers, floats or null/nil/None.
 - `{% break %}` and `{% continue %}` tags.
 - Nested variables.
-- Looping over dictionaries (or any Mapping) iterates key/value pairs.
 - `forloop` helper variables.
 - `for` tag arguments like `limit` and `reversed`.
 
@@ -111,6 +110,7 @@ If you need any of these features, and many more, try [Python Liquid](https://gi
 
 - We use Python truthiness, not Liquid or Ruby truthiness.
 - Any `Iterable` is can be looped over with the `{% for %}` tag. Non-iterable objects are silently ignored.
+- Looping over dictionaries (or any Mapping) iterates key/value pairs.
 
 ## Undefined variables
 
