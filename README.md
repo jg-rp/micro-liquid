@@ -109,7 +109,7 @@ If you need any of these features, and many more, try [Python Liquid](https://gi
 ## Other notable behavior
 
 - We use Python truthiness, not Liquid or Ruby truthiness.
-- Any `Iterable` is can be looped over with the `{% for %}` tag. Non-iterable objects are silently ignored.
+- Any `Iterable` can be looped over with the `{% for %}` tag. Non-iterable objects are silently ignored.
 - Looping over dictionaries (or any Mapping) iterates key/value pairs.
 
 ## Undefined variables
