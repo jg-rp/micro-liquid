@@ -33,7 +33,7 @@ Source = "https://github.com/jg-rp/micro-liquid"
 packages = ["."]
 
 [tool.hatch.envs.default]
-extra-dependencies = ["mypy>=1.0.0", "ruff", "pytest", "pytest-cov"]
+extra-dependencies = ["mypy>=1.0.0", "ruff", "pytest", "pytest-cov", "twine"]
 
 [tool.hatch.envs.default.scripts]
 test = "pytest {args}"
