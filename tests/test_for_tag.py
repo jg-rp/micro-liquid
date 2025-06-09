@@ -28,6 +28,12 @@ def test_loop_target_is_not_iterable() -> None:
     assert render(source, data) == ""
 
 
+def test_loop_target_is_not_iterable_with_default() -> None:
+    source = "{% for x in y %}({{ x.0 }}, {{ x.1 }}), {% else %}z{% endfor %}"
+    data = {"y": 42}
+    assert render(source, data) == "z"
+
+
 def test_loop_target_is_undefined() -> None:
     source = "{% for x in nosuchthing %}{{ x }}, {% endfor %}"
     data: dict[str, object] = {}

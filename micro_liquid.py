@@ -466,6 +466,8 @@ class ForTag:
         target = self.target.evaluate(data)
 
         if not isinstance(target, Iterable):
+            if self.default:
+                self.render_block(data, buffer, self.default)
             return
 
         if isinstance(target, Mapping):
@@ -478,19 +480,17 @@ class ForTag:
             for item in target:
                 namespace[self.name] = item
                 rendered = True
-
-                for node in self.block:
-                    if isinstance(node, str):
-                        buffer.append(node)
-                    else:
-                        node.render(data, buffer)
+                self.render_block(data, buffer, self.block)
 
         if not rendered and self.default:
-            for node in self.default:
-                if isinstance(node, str):
-                    buffer.append(node)
-                else:
-                    node.render(data, buffer)
+            self.render_block(data, buffer, self.default)
+
+    def render_block(self, data: Scope, buffer: list[str], nodes: list[Node]) -> None:
+        for node in nodes:
+            if isinstance(node, str):
+                buffer.append(node)
+            else:
+                node.render(data, buffer)
 
 
 class Undefined:
