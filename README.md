@@ -11,13 +11,14 @@ A non-evaluating alternative to f-strings and t-strings.
   <a href="https://github.com/jg-rp/micro-liquid/actions">
     <img src="https://img.shields.io/github/actions/workflow/status/jg-rp/micro-liquid/tests.yaml?branch=main&label=tests&style=flat-square" alt="Tests">
   </a>
-  <a href="https://pypi.org/project/micro-liquid">
-    <img alt="PyPI - Downloads" src="https://img.shields.io/pypi/dm/micro-liquid?style=flat-square">
-  </a>
   <br>
   <a href="https://pypi.org/project/micro-liquid">
     <img src="https://img.shields.io/pypi/v/micro-liquid.svg?style=flat-square" alt="PyPi - Version">
   </a>
+  <a href="https://anaconda.org/conda-forge/micro-liquid">
+    <img src="https://img.shields.io/conda/vn/conda-forge/micro-liquid?style=flat-square" alt="conda-forge">
+  </a>
+  <br>
   <a href="https://pypi.org/project/micro-liquid">
     <img src="https://img.shields.io/pypi/pyversions/micro-liquid.svg?style=flat-square" alt="Python versions">
   </a>
@@ -40,6 +41,12 @@ A non-evaluating alternative to f-strings and t-strings.
 
 ```console
 pip install micro-liquid
+```
+
+Or from [conda-forge](https://anaconda.org/conda-forge/micro-liquid):
+
+```console
+conda install conda-forge::micro-liquid
 ```
 
 ## Example
