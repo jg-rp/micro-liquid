@@ -70,7 +70,7 @@ Here, developers are expected to fully prepare data passed to `Template.render()
 
 ## What's included?
 
-Micro Liquid support variable substitution:
+Micro Liquid supports variable substitution:
 
 ```liquid
 Hello, {{ some_variable }}. How are you?
