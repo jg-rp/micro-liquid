@@ -45,7 +45,9 @@ from typing import TypeAlias
 __all__ = (
     "render",
     "Template",
+    "TemplateError",
     "TemplateSyntaxError",
+    "UndefinedVariableError",
     "StrictUndefined",
     "Undefined",
 )
@@ -176,7 +178,7 @@ _RE_TAG_NAME = re.compile(r"(?:end)?(?:if|for|elif|elsif|else)")
 _RE_WORD = re.compile(r"[\u0080-\uFFFFa-zA-Z_][\u0080-\uFFFFa-zA-Z0-9_-]*")
 _RE_MARKUP_START = re.compile(r"\{\{|\{%")
 _RE_MARKUP_END = re.compile(r"[\}%]\}?")
-_RE_PUNCTUATION = re.compile(r"[\[\]\.\(\)]")
+_RE_PUNCTUATION = re.compile(r"[\[\]\.\(\)'\"]")
 _RE_INT = re.compile(r"-?\d+")
 
 _TOKEN_MAP: dict[str, str] = {
@@ -277,21 +279,18 @@ class Scanner:
             if value := self.scan(_RE_INT):
                 self.emit("TOKEN_INT", value)
             elif value := self.scan(_RE_PUNCTUATION):
-                self.emit(_TOKEN_MAP.get(value, "TOKEN_UNKNOWN"), value)
-            elif value := self.scan(_RE_WORD):
-                self.emit(_TOKEN_MAP.get(value, "TOKEN_WORD"), value)
-            else:
-                peeked = self.peek()
-                if peeked == "'":
-                    self.pos += 1
+                if value == "'":
                     self.start = self.pos
                     self.scan_string("'", "TOKEN_SINGLE_QUOTE_STRING")
-                elif peeked == '"':
-                    self.pos += 1
+                elif value == '"':
                     self.start = self.pos
                     self.scan_string('"', "TOKEN_DOUBLE_QUOTE_STRING")
                 else:
-                    break
+                    self.emit(_TOKEN_MAP.get(value, "TOKEN_UNKNOWN"), value)
+            elif value := self.scan(_RE_WORD):
+                self.emit(_TOKEN_MAP.get(value, "TOKEN_WORD"), value)
+            else:
+                break
 
         self.accept_whitespace_control()
         value = self.scan(_RE_MARKUP_END)
